@@ -135,6 +135,14 @@ local function isImageReference(value)
 		or value:match("^https?://") ~= nil
 end
 
+local function getTabFallbackText(name, icon)
+	local raw = tostring(icon or "")
+	if raw:match("^[A-Za-z]$") then
+		return raw
+	end
+	return string.sub(tostring(name or "?"), 1, 1)
+end
+
 local function tween(instance, info, properties)
 	local tw = TweenService:Create(instance, info or TWEEN, properties)
 	tw:Play()
@@ -234,6 +242,14 @@ end
 
 local function imageIcon(icon, properties)
 	properties = properties or {}
+	local fallbackText = properties.FallbackText
+	if fallbackText == nil and typeof(icon) ~= "table" then
+		local raw = tostring(icon or "")
+		if raw:match("^[A-Za-z]$") then
+			fallbackText = raw
+		end
+	end
+
 	local image = create("ImageLabel", {
 		Name = properties.Name or "Icon",
 		BackgroundTransparency = 1,
@@ -249,10 +265,40 @@ local function imageIcon(icon, properties)
 		Parent = properties.Parent,
 	})
 	for key, value in pairs(properties) do
-		if key ~= "Name" and key ~= "ImageColor3" and key ~= "ImageTransparency" and key ~= "ScaleType" and key ~= "AnchorPoint" and key ~= "Position" and key ~= "Size" and key ~= "ZIndex" and key ~= "Parent" then
+		if key ~= "Name" and key ~= "ImageColor3" and key ~= "ImageTransparency" and key ~= "ScaleType" and key ~= "AnchorPoint" and key ~= "Position" and key ~= "Size" and key ~= "ZIndex" and key ~= "Parent" and key ~= "FallbackText" and key ~= "FallbackTextSize" then
 			image[key] = value
 		end
 	end
+
+	if fallbackText and fallbackText ~= "" then
+		local fallback = textLabel({
+			Name = "FallbackIconText",
+			Text = tostring(fallbackText),
+			Font = Enum.Font.GothamBold,
+			TextColor3 = properties.ImageColor3 or THEME.Text,
+			TextSize = properties.FallbackTextSize or 12,
+			TextXAlignment = Enum.TextXAlignment.Center,
+			TextYAlignment = Enum.TextYAlignment.Center,
+			Size = UDim2.fromScale(1, 1),
+			ZIndex = image.ZIndex + 1,
+			Parent = image,
+		})
+
+		local function updateFallback()
+			local loaded = false
+			pcall(function()
+				loaded = image.IsLoaded
+			end)
+			fallback.Visible = image.Image == "" or not loaded
+		end
+
+		updateFallback()
+		pcall(function()
+			image:GetPropertyChangedSignal("Image"):Connect(updateFallback)
+			image:GetPropertyChangedSignal("IsLoaded"):Connect(updateFallback)
+		end)
+	end
+
 	return image
 end
 
@@ -540,6 +586,10 @@ function Window:SetSection(section)
 		})
 		if entry.IconImage then
 			tween(entry.IconImage, TWEEN, { ImageColor3 = active and THEME.Text or THEME.TextInactive })
+			local imageFallback = entry.IconImage:FindFirstChild("FallbackIconText")
+			if imageFallback then
+				tween(imageFallback, TWEEN, { TextColor3 = active and THEME.Text or THEME.TextInactive })
+			end
 		end
 		if entry.FallbackIcon then
 			tween(entry.FallbackIcon, TWEEN, { TextColor3 = active and THEME.Text or THEME.TextInactive })
@@ -583,10 +633,13 @@ function Window:Section(name, icon)
 
 	local initialIcon = resolveIcon(section.Icon)
 	local hasInitialImage = isImageReference(initialIcon)
+	local fallbackIconText = getTabFallbackText(section.Name, section.Icon)
 
 	section.IconImage = imageIcon(hasInitialImage and initialIcon or "", {
 		Name = "TabIcon",
 		ImageColor3 = index == 1 and THEME.Text or THEME.TextInactive,
+		FallbackText = fallbackIconText,
+		FallbackTextSize = 16,
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Position = UDim2.fromScale(0.5, 0.5),
 		Size = UDim2.fromOffset(18, 18),
@@ -595,7 +648,7 @@ function Window:Section(name, icon)
 	})
 	section.FallbackIcon = textLabel({
 		Name = "FallbackIcon",
-		Text = tostring(section.Icon),
+		Text = fallbackIconText,
 		Font = Enum.Font.GothamBold,
 		TextSize = 16,
 		TextColor3 = index == 1 and THEME.Text or THEME.TextInactive,
@@ -610,12 +663,20 @@ function Window:Section(name, icon)
 	button.MouseEnter:Connect(function()
 		if self.ActiveSection ~= section then
 			tween(section.IconImage, TWEEN, { ImageColor3 = THEME.Text })
+			local imageFallback = section.IconImage:FindFirstChild("FallbackIconText")
+			if imageFallback then
+				tween(imageFallback, TWEEN, { TextColor3 = THEME.Text })
+			end
 			tween(section.FallbackIcon, TWEEN, { TextColor3 = THEME.Text })
 		end
 	end)
 	button.MouseLeave:Connect(function()
 		if self.ActiveSection ~= section then
 			tween(section.IconImage, TWEEN, { ImageColor3 = THEME.TextInactive })
+			local imageFallback = section.IconImage:FindFirstChild("FallbackIconText")
+			if imageFallback then
+				tween(imageFallback, TWEEN, { TextColor3 = THEME.TextInactive })
+			end
 			tween(section.FallbackIcon, TWEEN, { TextColor3 = THEME.TextInactive })
 		end
 	end)
@@ -680,15 +741,21 @@ function Section:SetIcon(icon)
 	local resolved = resolveIcon(icon)
 	local hasImage = isImageReference(resolved)
 	local color = self.Window.ActiveSection == self and THEME.Text or THEME.TextInactive
+	local fallbackText = getTabFallbackText(self.Name, icon)
 
 	if self.IconImage then
 		self.IconImage.Image = hasImage and resolved or ""
 		self.IconImage.Visible = hasImage
 		self.IconImage.ImageColor3 = color
+		local imageFallback = self.IconImage:FindFirstChild("FallbackIconText")
+		if imageFallback then
+			imageFallback.Text = fallbackText
+			imageFallback.TextColor3 = color
+		end
 	end
 
 	if self.FallbackIcon then
-		self.FallbackIcon.Text = tostring(icon or "")
+		self.FallbackIcon.Text = fallbackText
 		self.FallbackIcon.Visible = not hasImage
 		self.FallbackIcon.TextColor3 = color
 	end
@@ -2097,6 +2164,11 @@ function Window:_makeDraggable()
 end
 
 function Library:CreateWindow(options)
+	if self ~= Library then
+		options = self
+		self = Library
+	end
+
 	options = typeof(options) == "table" and options or { Title = tostring(options or "Past Owl") }
 
 	local screenGui = create("ScreenGui", {
@@ -2161,10 +2233,18 @@ function Library:CreateWindow(options)
 end
 
 function Library:GetIcon(icon)
+	if self ~= Library then
+		icon = self
+	end
 	return resolveIcon(icon)
 end
 
 function Library:LoadDemo(options)
+	if self ~= Library then
+		options = self
+		self = Library
+	end
+
 	local window = self:CreateWindow(options or { Name = "SkiddedGui", Title = "Past Owl" })
 
 	local sec1 = window:Section("sec1", "B")
@@ -2287,6 +2367,31 @@ function Library:LoadDemo(options)
 	return window
 end
 
+function Library:Window(options)
+	if self ~= Library then
+		options = self
+		self = Library
+	end
+	return self:CreateWindow(options)
+end
+
+function Library:Section(name, icon)
+	if self ~= Library then
+		icon = name
+		name = self
+		self = Library
+	end
+
+	if not self.DefaultWindow or not self.DefaultWindow.ScreenGui or not self.DefaultWindow.ScreenGui.Parent then
+		self.DefaultWindow = self:CreateWindow({ Name = "SkiddedGui" })
+	end
+	return self.DefaultWindow:Section(name, icon)
+end
+
+Library.Create = Library.CreateWindow
+Library.NewWindow = Library.CreateWindow
+Library.CreateSection = Library.Section
+
 Library.Window = Window
 Library.Section = Section
 Library.Child = Child
@@ -2294,7 +2399,10 @@ Library.Theme = THEME
 Library.Icons = Library.IconAssets
 
 return setmetatable(Library, {
-	__call = function(self)
+	__call = function(self, options)
+		if typeof(options) == "table" then
+			return self:CreateWindow(options)
+		end
 		return self
 	end,
 })
