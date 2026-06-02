@@ -9,6 +9,30 @@ local RunService = game:GetService("RunService")
 local Library = {}
 Library.Flags = {}
 Library.Windows = {}
+Library.IconAssets = {
+	A = "rbxassetid://83474567030505",
+	B = "rbxassetid://77418185570042",
+	C = "rbxassetid://137111999800142",
+	D = "rbxassetid://139664165841721",
+	E = "rbxassetid://114754134951082",
+	F = "rbxassetid://95544887759087",
+	G = "rbxassetid://123415750905747",
+	H = "rbxassetid://92442831588116",
+	I = "rbxassetid://88775097140952",
+	J = "rbxassetid://105630744570444",
+	K = "rbxassetid://97591161545275",
+	L = "rbxassetid://82021438703597",
+	M = "rbxassetid://110781909515877",
+	N = "rbxassetid://75577888614350",
+	O = "rbxassetid://103262728701664",
+	P = "rbxassetid://131233830141643",
+	Q = "rbxassetid://100667593321549",
+	R = "rbxassetid://139804455732286",
+}
+
+for key, value in pairs(table.clone(Library.IconAssets)) do
+	Library.IconAssets["icon_" .. key] = value
+end
 
 local THEME = {
 	Accent = Color3.fromRGB(103, 100, 255),
@@ -76,6 +100,39 @@ local TWEEN_SLOW = TweenInfo.new(0.28, Enum.EasingStyle.Quart, Enum.EasingDirect
 
 local function cleanName(name)
 	return tostring(name or ""):gsub("##.*", "")
+end
+
+local function resolveIcon(icon)
+	if typeof(icon) == "table" then
+		icon = icon.Icon or icon.Image or icon.Asset or icon.AssetId or icon.Id or icon[1]
+	end
+	if icon == nil then
+		return ""
+	end
+
+	local key = tostring(icon)
+	if Library.IconAssets[key] then
+		return Library.IconAssets[key]
+	end
+
+	local upper = string.upper(key)
+	if Library.IconAssets[upper] then
+		return Library.IconAssets[upper]
+	end
+
+	local digits = key:match("^%s*(%d+)%s*$")
+	if digits then
+		return "rbxassetid://" .. digits
+	end
+
+	return key
+end
+
+local function isImageReference(value)
+	value = tostring(value or "")
+	return value:match("^rbxassetid://") ~= nil
+		or value:match("^rbxasset://") ~= nil
+		or value:match("^https?://") ~= nil
 end
 
 local function tween(instance, info, properties)
@@ -173,6 +230,30 @@ local function textButton(properties)
 		end
 	end
 	return button
+end
+
+local function imageIcon(icon, properties)
+	properties = properties or {}
+	local image = create("ImageLabel", {
+		Name = properties.Name or "Icon",
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		Image = resolveIcon(icon),
+		ImageColor3 = properties.ImageColor3 or THEME.Text,
+		ImageTransparency = properties.ImageTransparency or 0,
+		ScaleType = properties.ScaleType or Enum.ScaleType.Fit,
+		AnchorPoint = properties.AnchorPoint or Vector2.new(0, 0),
+		Position = properties.Position or UDim2.fromOffset(0, 0),
+		Size = properties.Size or UDim2.fromOffset(18, 18),
+		ZIndex = properties.ZIndex or 1,
+		Parent = properties.Parent,
+	})
+	for key, value in pairs(properties) do
+		if key ~= "Name" and key ~= "ImageColor3" and key ~= "ImageTransparency" and key ~= "ScaleType" and key ~= "AnchorPoint" and key ~= "Position" and key ~= "Size" and key ~= "ZIndex" and key ~= "Parent" then
+			image[key] = value
+		end
+	end
+	return image
 end
 
 local function pointInside(guiObject, point)
@@ -456,8 +537,13 @@ function Window:SetSection(section)
 		entry.Page.Visible = active
 		tween(entry.Button, TWEEN, {
 			BackgroundTransparency = active and 0.8 or 1,
-			TextColor3 = active and THEME.Text or THEME.TextInactive,
 		})
+		if entry.IconImage then
+			tween(entry.IconImage, TWEEN, { ImageColor3 = active and THEME.Text or THEME.TextInactive })
+		end
+		if entry.FallbackIcon then
+			tween(entry.FallbackIcon, TWEEN, { TextColor3 = active and THEME.Text or THEME.TextInactive })
+		end
 		if active then
 			entry.Page.GroupTransparency = 1
 			tween(entry.Page, TWEEN, { GroupTransparency = 0 })
@@ -470,10 +556,15 @@ function Window:SetSection(section)
 end
 
 function Window:Section(name, icon)
+	local iconValue = icon
+	if typeof(iconValue) == "table" then
+		iconValue = iconValue.Icon or iconValue.Image or iconValue.Asset or iconValue.AssetId or iconValue.Id or iconValue[1]
+	end
+
 	local section = setmetatable({
 		Window = self,
 		Name = tostring(name or ("sec" .. tostring(#self.Sections + 1))),
-		Icon = tostring(icon or string.sub(tostring(name or "?"), 1, 1)),
+		Icon = iconValue or string.sub(tostring(name or "?"), 1, 1),
 		Children = {},
 		ColumnCounts = { Left = 0, Right = 0 },
 	}, Section)
@@ -481,10 +572,7 @@ function Window:Section(name, icon)
 	local index = #self.Sections + 1
 	local button = textButton({
 		Name = "Section_" .. section.Name,
-		Text = section.Icon,
-		Font = Enum.Font.GothamBold,
-		TextSize = 16,
-		TextColor3 = index == 1 and THEME.Text or THEME.TextInactive,
+		Text = "",
 		BackgroundColor3 = THEME.SectionOn,
 		BackgroundTransparency = index == 1 and 0.8 or 1,
 		Size = UDim2.fromOffset(DIM.SectionButton, DIM.SectionButton),
@@ -492,14 +580,43 @@ function Window:Section(name, icon)
 		Parent = self.SectionList,
 	})
 	corner(4).Parent = button
+
+	local initialIcon = resolveIcon(section.Icon)
+	local hasInitialImage = isImageReference(initialIcon)
+
+	section.IconImage = imageIcon(hasInitialImage and initialIcon or "", {
+		Name = "TabIcon",
+		ImageColor3 = index == 1 and THEME.Text or THEME.TextInactive,
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromOffset(18, 18),
+		ZIndex = button.ZIndex + 1,
+		Parent = button,
+	})
+	section.FallbackIcon = textLabel({
+		Name = "FallbackIcon",
+		Text = tostring(section.Icon),
+		Font = Enum.Font.GothamBold,
+		TextSize = 16,
+		TextColor3 = index == 1 and THEME.Text or THEME.TextInactive,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		Size = UDim2.fromScale(1, 1),
+		Visible = not hasInitialImage,
+		ZIndex = button.ZIndex + 1,
+		Parent = button,
+	})
+	section.IconImage.Visible = hasInitialImage
+
 	button.MouseEnter:Connect(function()
 		if self.ActiveSection ~= section then
-			tween(button, TWEEN, { TextColor3 = THEME.Text })
+			tween(section.IconImage, TWEEN, { ImageColor3 = THEME.Text })
+			tween(section.FallbackIcon, TWEEN, { TextColor3 = THEME.Text })
 		end
 	end)
 	button.MouseLeave:Connect(function()
 		if self.ActiveSection ~= section then
-			tween(button, TWEEN, { TextColor3 = THEME.TextInactive })
+			tween(section.IconImage, TWEEN, { ImageColor3 = THEME.TextInactive })
+			tween(section.FallbackIcon, TWEEN, { TextColor3 = THEME.TextInactive })
 		end
 	end)
 	button.MouseButton1Click:Connect(function()
@@ -557,6 +674,42 @@ end
 Window.CreateSection = Window.Section
 Window.CreateTab = Window.Section
 Window.Tab = Window.Section
+
+function Section:SetIcon(icon)
+	self.Icon = icon
+	local resolved = resolveIcon(icon)
+	local hasImage = isImageReference(resolved)
+	local color = self.Window.ActiveSection == self and THEME.Text or THEME.TextInactive
+
+	if self.IconImage then
+		self.IconImage.Image = hasImage and resolved or ""
+		self.IconImage.Visible = hasImage
+		self.IconImage.ImageColor3 = color
+	end
+
+	if self.FallbackIcon then
+		self.FallbackIcon.Text = tostring(icon or "")
+		self.FallbackIcon.Visible = not hasImage
+		self.FallbackIcon.TextColor3 = color
+	end
+end
+
+function Window:SetSectionIcon(section, icon)
+	if typeof(section) == "number" then
+		section = self.Sections[section]
+	elseif typeof(section) == "string" then
+		for _, entry in ipairs(self.Sections) do
+			if entry.Name == section then
+				section = entry
+				break
+			end
+		end
+	end
+
+	if section and section.SetIcon then
+		section:SetIcon(icon)
+	end
+end
 
 function Section:Child(name, side)
 	local chosenSide = side
@@ -740,15 +893,20 @@ function Child:Toggle(options)
 	if options.Keybind then
 		keyButton = textButton({
 			Name = "Keybind",
-			Text = "I",
-			Font = Enum.Font.GothamBold,
-			TextSize = 12,
-			TextColor3 = THEME.TextInactive,
+			Text = "",
 			AnchorPoint = Vector2.new(1, 0.5),
 			Position = UDim2.new(1, -45, 0.5, 0),
 			Size = UDim2.fromOffset(22, 22),
 			ZIndex = 20,
 			Parent = control.Row,
+		})
+		local keyIcon = imageIcon("I", {
+			ImageColor3 = THEME.TextInactive,
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.fromScale(0.5, 0.5),
+			Size = UDim2.fromOffset(14, 14),
+			ZIndex = keyButton.ZIndex + 1,
+			Parent = keyButton,
 		})
 
 		local captureConnection
@@ -835,10 +993,10 @@ function Child:Toggle(options)
 		end
 
 		keyButton.MouseEnter:Connect(function()
-			tween(keyButton, TWEEN, { TextColor3 = THEME.Text })
+			tween(keyIcon, TWEEN, { ImageColor3 = THEME.Text })
 		end)
 		keyButton.MouseLeave:Connect(function()
-			tween(keyButton, TWEEN, { TextColor3 = THEME.TextInactive })
+			tween(keyIcon, TWEEN, { ImageColor3 = THEME.TextInactive })
 		end)
 		keyButton.MouseButton1Click:Connect(openKeybindPopup)
 
@@ -1042,15 +1200,12 @@ function Child:Dropdown(options)
 		Parent = button,
 	})
 
-	local arrow = textLabel({
+	local arrow = imageIcon("G", {
 		Name = "Arrow",
-		Text = "G",
-		TextColor3 = THEME.Text,
-		TextSize = 8,
-		TextXAlignment = Enum.TextXAlignment.Center,
+		ImageColor3 = THEME.Text,
 		AnchorPoint = Vector2.new(1, 0),
 		Position = UDim2.new(1, -8, 0, 0),
-		Size = UDim2.fromOffset(18, DIM.DropdownInnerHeight),
+		Size = UDim2.fromOffset(10, DIM.DropdownInnerHeight),
 		ZIndex = 15,
 		Parent = button,
 	})
@@ -1084,13 +1239,11 @@ function Child:Dropdown(options)
 				})
 				corner(4).Parent = itemButton
 
-				local check = textLabel({
-					Text = active and "R" or "",
-					TextColor3 = THEME.Text,
-					TextSize = 8,
-					TextXAlignment = Enum.TextXAlignment.Center,
+				local check = imageIcon("R", {
+					ImageColor3 = THEME.Text,
 					Position = UDim2.fromOffset(0, 0),
-					Size = UDim2.fromOffset(18, 24),
+					Size = UDim2.fromOffset(12, 24),
+					Visible = active,
 					ZIndex = 73,
 					Parent = itemButton,
 				})
@@ -1156,15 +1309,12 @@ function Child:MultiDropdown(options)
 		Parent = button,
 	})
 
-	textLabel({
+	imageIcon("G", {
 		Name = "Arrow",
-		Text = "G",
-		TextColor3 = THEME.Text,
-		TextSize = 8,
-		TextXAlignment = Enum.TextXAlignment.Center,
+		ImageColor3 = THEME.Text,
 		AnchorPoint = Vector2.new(1, 0),
 		Position = UDim2.new(1, -8, 0, 0),
-		Size = UDim2.fromOffset(18, DIM.DropdownInnerHeight),
+		Size = UDim2.fromOffset(10, DIM.DropdownInnerHeight),
 		ZIndex = 15,
 		Parent = button,
 	})
@@ -1219,13 +1369,11 @@ function Child:MultiDropdown(options)
 				})
 				corner(4).Parent = itemButton
 
-				local check = textLabel({
-					Text = state[item] and "R" or "",
-					TextColor3 = THEME.Text,
-					TextSize = 8,
-					TextXAlignment = Enum.TextXAlignment.Center,
+				local check = imageIcon("R", {
+					ImageColor3 = THEME.Text,
 					Position = UDim2.fromOffset(0, 0),
-					Size = UDim2.fromOffset(18, 24),
+					Size = UDim2.fromOffset(12, 24),
+					Visible = state[item],
 					ZIndex = 73,
 					Parent = itemButton,
 				})
@@ -1240,7 +1388,7 @@ function Child:MultiDropdown(options)
 				end)
 				itemButton.MouseButton1Click:Connect(function()
 					state[item] = not state[item]
-					check.Text = state[item] and "R" or ""
+					check.Visible = state[item]
 					tween(itemButton, TWEEN_FAST, {
 						TextColor3 = state[item] and THEME.Text or THEME.TextInactive,
 						BackgroundTransparency = state[item] and 0 or 1,
@@ -1301,12 +1449,11 @@ function Child:Button(options)
 		ZIndex = 16,
 		Parent = iconRect,
 	})
-	textLabel({
-		Text = options.Icon or "H",
-		Font = Enum.Font.GothamBold,
-		TextSize = 12,
-		TextXAlignment = Enum.TextXAlignment.Center,
-		Size = UDim2.fromScale(1, 1),
+	imageIcon(options.Icon or "H", {
+		ImageColor3 = THEME.Text,
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromOffset(14, 14),
 		ZIndex = 17,
 		Parent = iconRect,
 	})
@@ -1370,15 +1517,11 @@ function Child:Textbox(options)
 		Parent = boxFrame,
 	})
 
-	textLabel({
-		Text = "K",
-		Font = Enum.Font.GothamBold,
-		TextSize = 12,
-		TextColor3 = THEME.TextInactive,
-		TextXAlignment = Enum.TextXAlignment.Center,
+	imageIcon("K", {
+		ImageColor3 = THEME.TextInactive,
 		AnchorPoint = Vector2.new(1, 0),
 		Position = UDim2.new(1, -12, 0, 0),
-		Size = UDim2.fromOffset(18, 30),
+		Size = UDim2.fromOffset(14, 30),
 		ZIndex = 15,
 		Parent = boxFrame,
 	})
@@ -1442,16 +1585,12 @@ function Window:_makeSearch()
 		Parent = searchFrame,
 	})
 
-	textLabel({
+	imageIcon("J", {
 		Name = "Icon",
-		Text = "J",
-		Font = Enum.Font.GothamBold,
-		TextColor3 = THEME.TextInactive,
-		TextSize = 16,
-		TextXAlignment = Enum.TextXAlignment.Center,
+		ImageColor3 = THEME.TextInactive,
 		AnchorPoint = Vector2.new(1, 0),
 		Position = UDim2.new(1, -8, 0, 0),
-		Size = UDim2.fromOffset(24, 40),
+		Size = UDim2.fromOffset(16, 40),
 		ZIndex = 22,
 		Parent = searchFrame,
 	})
@@ -1502,13 +1641,11 @@ function Window:_makeConfigDropdown()
 		Parent = button,
 	})
 
-	textLabel({
-		Text = "H",
-		Font = Enum.Font.GothamBold,
-		TextSize = 12,
-		TextXAlignment = Enum.TextXAlignment.Center,
-		Position = UDim2.fromOffset(0, 0),
-		Size = UDim2.fromOffset(40, 40),
+	imageIcon("H", {
+		ImageColor3 = THEME.Text,
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromOffset(20, 20),
+		Size = UDim2.fromOffset(14, 40),
 		ZIndex = 22,
 		Parent = button,
 	})
@@ -1523,14 +1660,11 @@ function Window:_makeConfigDropdown()
 		Parent = button,
 	})
 
-	local arrow = textLabel({
-		Text = "G",
-		TextColor3 = THEME.Text,
-		TextSize = 8,
-		TextXAlignment = Enum.TextXAlignment.Center,
+	local arrow = imageIcon("G", {
+		ImageColor3 = THEME.Text,
 		AnchorPoint = Vector2.new(1, 0),
 		Position = UDim2.new(1, -8, 0, 0),
-		Size = UDim2.fromOffset(18, 40),
+		Size = UDim2.fromOffset(10, 40),
 		ZIndex = 22,
 		Parent = button,
 	})
@@ -1551,12 +1685,10 @@ function Window:_makeConfigDropdown()
 					Parent = popup,
 				})
 				corner(4).Parent = itemButton
-				textLabel({
-					Text = active and "R" or "",
-					TextColor3 = THEME.Text,
-					TextSize = 8,
-					TextXAlignment = Enum.TextXAlignment.Center,
-					Size = UDim2.fromOffset(18, 24),
+				imageIcon("R", {
+					ImageColor3 = THEME.Text,
+					Size = UDim2.fromOffset(12, 24),
+					Visible = active,
 					ZIndex = 73,
 					Parent = itemButton,
 				})
@@ -1606,13 +1738,11 @@ function Window:_makeSettings()
 			ZIndex = 82,
 			Parent = parent,
 		})
-		textLabel({
-			Text = icon,
-			Font = Enum.Font.GothamBold,
-			TextSize = 10,
-			TextColor3 = THEME.Text,
-			TextXAlignment = Enum.TextXAlignment.Left,
-			Size = UDim2.fromOffset(18, 17),
+		imageIcon(icon, {
+			ImageColor3 = THEME.Text,
+			AnchorPoint = Vector2.new(0, 0.5),
+			Position = UDim2.fromOffset(0, 8.5),
+			Size = UDim2.fromOffset(12, 12),
 			ZIndex = 83,
 			Parent = row,
 		})
@@ -1636,15 +1766,11 @@ function Window:_makeSettings()
 			ZIndex = 83,
 			Parent = row,
 		})
-		textLabel({
-			Text = "G",
-			Font = Enum.Font.GothamBold,
-			TextSize = 7,
-			TextColor3 = THEME.Text,
-			TextXAlignment = Enum.TextXAlignment.Right,
+		imageIcon("G", {
+			ImageColor3 = THEME.Text,
 			AnchorPoint = Vector2.new(1, 0),
 			Position = UDim2.new(1, 0, 0, 0),
-			Size = UDim2.fromOffset(12, 17),
+			Size = UDim2.fromOffset(8, 17),
 			ZIndex = 83,
 			Parent = row,
 		})
@@ -1786,13 +1912,11 @@ function Window:_makeSettings()
 			ZIndex = 82,
 			Parent = bottom,
 		})
-		textLabel({
-			Text = "M",
-			Font = Enum.Font.GothamBold,
-			TextSize = 10,
-			TextColor3 = THEME.Text,
-			TextXAlignment = Enum.TextXAlignment.Left,
-			Size = UDim2.fromOffset(18, 17),
+		imageIcon("M", {
+			ImageColor3 = THEME.Text,
+			AnchorPoint = Vector2.new(0, 0.5),
+			Position = UDim2.fromOffset(0, 8.5),
+			Size = UDim2.fromOffset(12, 12),
 			ZIndex = 83,
 			Parent = styles,
 		})
@@ -1875,19 +1999,15 @@ function Window:_makeChrome()
 		corner(DIM.WindowRounding),
 	})
 
-	local logo = textLabel({
+	local logo = imageIcon("A", {
 		Name = "Logo",
-		Text = "A",
-		Font = Enum.Font.GothamBold,
-		TextColor3 = self.Theme.Accent,
-		TextSize = 22,
-		TextXAlignment = Enum.TextXAlignment.Center,
+		ImageColor3 = self.Theme.Accent,
 		Position = UDim2.fromOffset(21, 22),
 		Size = UDim2.fromOffset(22, 21),
 		ZIndex = 5,
 		Parent = main,
 	})
-	self:_bindAccent(logo, "TextColor3")
+	self:_bindAccent(logo, "ImageColor3")
 
 	create("Frame", {
 		Name = "LogoLine",
@@ -1899,15 +2019,12 @@ function Window:_makeChrome()
 		Parent = main,
 	})
 
-	textLabel({
+	imageIcon("G", {
 		Name = "RailBottomIcon",
-		Text = "G",
-		Font = Enum.Font.GothamBold,
-		TextColor3 = THEME.Text,
-		TextSize = 8,
-		TextXAlignment = Enum.TextXAlignment.Center,
-		Position = UDim2.fromOffset(0, 425),
-		Size = UDim2.fromOffset(DIM.RailWidth, 30),
+		ImageColor3 = THEME.Text,
+		AnchorPoint = Vector2.new(0.5, 1),
+		Position = UDim2.fromOffset(DIM.RailWidth / 2, 455),
+		Size = UDim2.fromOffset(10, 10),
 		ZIndex = 5,
 		Parent = main,
 	})
@@ -2043,6 +2160,10 @@ function Library:CreateWindow(options)
 	return window
 end
 
+function Library:GetIcon(icon)
+	return resolveIcon(icon)
+end
+
 function Library:LoadDemo(options)
 	local window = self:CreateWindow(options or { Name = "SkiddedGui", Title = "Past Owl" })
 
@@ -2170,6 +2291,7 @@ Library.Window = Window
 Library.Section = Section
 Library.Child = Child
 Library.Theme = THEME
+Library.Icons = Library.IconAssets
 
 return setmetatable(Library, {
 	__call = function(self)
