@@ -29,6 +29,7 @@ Library.IconAssets = {
 	Q = "rbxassetid://100667593321549",
 	R = "rbxassetid://139804455732286",
 }
+Library.LogoAsset = "rbxassetid://83474567030505"
 
 for key, value in pairs(table.clone(Library.IconAssets)) do
 	Library.IconAssets["icon_" .. key] = value
@@ -81,7 +82,7 @@ local DIM = {
 	WindowRounding = 16,
 
 	SectionButton = 35,
-	TabIconSize = 26,
+	TabIconSize = 21,
 	SectionTop = 81,
 	SectionPadding = 15,
 	SectionSpacing = 10,
@@ -1499,7 +1500,7 @@ function Child:Dropdown(options)
 			for _, item in ipairs(items) do
 				local active = item == selected
 				local itemButton = textButton({
-					Text = tostring(item),
+					Text = "",
 					TextColor3 = active and THEME.Text or THEME.TextInactive,
 					TextSize = 12,
 					TextXAlignment = Enum.TextXAlignment.Left,
@@ -1520,15 +1521,26 @@ function Child:Dropdown(options)
 					ZIndex = 73,
 					Parent = itemButton,
 				})
-				itemButton.TextXAlignment = Enum.TextXAlignment.Left
-				itemButton.Text = "     " .. tostring(item)
+
+				local itemLabel = textLabel({
+					Text = tostring(item),
+					TextColor3 = active and THEME.Text or THEME.TextInactive,
+					TextSize = 12,
+					TextXAlignment = Enum.TextXAlignment.Left,
+					Position = UDim2.fromOffset(30, 0),
+					Size = UDim2.new(1, -34, 1, 0),
+					ZIndex = 73,
+					Parent = itemButton,
+				})
 
 				itemButton.MouseEnter:Connect(function()
-					tween(itemButton, TWEEN_FAST, { TextColor3 = THEME.Text, BackgroundTransparency = 0 })
+					tween(itemButton, TWEEN_FAST, { BackgroundTransparency = 0 })
+					tween(itemLabel, TWEEN_FAST, { TextColor3 = THEME.Text })
 				end)
 				itemButton.MouseLeave:Connect(function()
 					if item ~= selected then
-						tween(itemButton, TWEEN_FAST, { TextColor3 = THEME.TextInactive, BackgroundTransparency = 1 })
+						tween(itemButton, TWEEN_FAST, { BackgroundTransparency = 1 })
+						tween(itemLabel, TWEEN_FAST, { TextColor3 = THEME.TextInactive })
 					end
 				end)
 				itemButton.MouseButton1Click:Connect(function()
@@ -1630,7 +1642,7 @@ function Child:MultiDropdown(options)
 		self.Window:_openPopup(button, DIM.DropdownWidth, function(popup)
 			for _, item in ipairs(items) do
 				local itemButton = textButton({
-					Text = "     " .. tostring(item),
+					Text = "",
 					TextColor3 = state[item] and THEME.Text or THEME.TextInactive,
 					TextSize = 12,
 					TextXAlignment = Enum.TextXAlignment.Left,
@@ -1652,21 +1664,32 @@ function Child:MultiDropdown(options)
 					Parent = itemButton,
 				})
 
+				local itemLabel = textLabel({
+					Text = tostring(item),
+					TextColor3 = state[item] and THEME.Text or THEME.TextInactive,
+					TextSize = 12,
+					TextXAlignment = Enum.TextXAlignment.Left,
+					Position = UDim2.fromOffset(30, 0),
+					Size = UDim2.new(1, -34, 1, 0),
+					ZIndex = 73,
+					Parent = itemButton,
+				})
+
 				itemButton.MouseEnter:Connect(function()
-					tween(itemButton, TWEEN_FAST, { TextColor3 = THEME.Text, BackgroundTransparency = 0 })
+					tween(itemButton, TWEEN_FAST, { BackgroundTransparency = 0 })
+					tween(itemLabel, TWEEN_FAST, { TextColor3 = THEME.Text })
 				end)
 				itemButton.MouseLeave:Connect(function()
 					if not state[item] then
-						tween(itemButton, TWEEN_FAST, { TextColor3 = THEME.TextInactive, BackgroundTransparency = 1 })
+						tween(itemButton, TWEEN_FAST, { BackgroundTransparency = 1 })
+						tween(itemLabel, TWEEN_FAST, { TextColor3 = THEME.TextInactive })
 					end
 				end)
 				itemButton.MouseButton1Click:Connect(function()
 					state[item] = not state[item]
 					check.Visible = state[item]
-					tween(itemButton, TWEEN_FAST, {
-						TextColor3 = state[item] and THEME.Text or THEME.TextInactive,
-						BackgroundTransparency = state[item] and 0 or 1,
-					})
+					tween(itemButton, TWEEN_FAST, { BackgroundTransparency = state[item] and 0 or 1 })
+					tween(itemLabel, TWEEN_FAST, { TextColor3 = state[item] and THEME.Text or THEME.TextInactive })
 					renderPreview()
 					safeCallback(control.Callback, control.Value)
 				end)
@@ -1831,6 +1854,7 @@ Child.AddTextbox = Child.Textbox
 function Window:_makeSearch()
 	local searchFrame = create("Frame", {
 		Name = "Search",
+		Active = true,
 		BackgroundColor3 = THEME.Child,
 		BorderSizePixel = 0,
 		Position = UDim2.fromOffset(20, 20),
@@ -1868,6 +1892,12 @@ function Window:_makeSearch()
 		ZIndex = 22,
 		Parent = searchFrame,
 	})
+
+	searchFrame.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			box:CaptureFocus()
+		end
+	end)
 
 	local function updateSize()
 		local active = box:IsFocused() or #box.Text > 0
@@ -1949,7 +1979,7 @@ function Window:_makeConfigDropdown()
 			for _, item in ipairs(items) do
 				local active = item == self.SelectedConfig
 				local itemButton = textButton({
-					Text = "     " .. item,
+					Text = "",
 					TextColor3 = active and THEME.Text or THEME.TextInactive,
 					TextSize = 12,
 					TextXAlignment = Enum.TextXAlignment.Left,
@@ -1966,6 +1996,16 @@ function Window:_makeConfigDropdown()
 					Position = UDim2.fromOffset(4, 12),
 					Size = UDim2.fromOffset(14, 14),
 					Visible = active,
+					ZIndex = 73,
+					Parent = itemButton,
+				})
+				textLabel({
+					Text = item,
+					TextColor3 = active and THEME.Text or THEME.TextInactive,
+					TextSize = 12,
+					TextXAlignment = Enum.TextXAlignment.Left,
+					Position = UDim2.fromOffset(30, 0),
+					Size = UDim2.new(1, -34, 1, 0),
 					ZIndex = 73,
 					Parent = itemButton,
 				})
@@ -2163,8 +2203,9 @@ function Window:_makeChrome()
 		corner(DIM.WindowRounding),
 	})
 
-	local logo = imageIcon("A", {
+	local logo = imageIcon(Library.LogoAsset or "A", {
 		Name = "Logo",
+		FallbackText = "A",
 		ImageColor3 = self.Theme.Accent,
 		Position = UDim2.fromOffset(19, 19),
 		Size = UDim2.fromOffset(27, 27),
@@ -2338,7 +2379,7 @@ function Library:LoadDemo(options)
 
 	local window = self:CreateWindow(options or { Name = "SkiddedGui", Title = "Past Owl" })
 
-	local sec1 = window:Section("sec1", "B")
+	local sec1 = window:Section("sec1", "77093162407481")
 	window:Section("sec2", "D")
 	window:Section("sec3", "C")
 	window:Section("sec4", "E")
