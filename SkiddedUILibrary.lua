@@ -9,6 +9,7 @@ local HttpService = game:GetService("HttpService")
 
 local Library = {}
 Library.Flags = {}
+Library.Options = {}
 Library.Windows = {}
 Library.ConfigFolder = "SkiddedUILibraryConfigs"
 Library.MemoryConfigs = {}
@@ -291,6 +292,50 @@ local function toVector2Size(value, fallback)
 	end
 	return fallback
 end
+
+local function normalizeColorValue(value, fallback)
+	if typeof(value) == "Color3" then
+		return value
+	end
+	if typeof(value) == "table" then
+		local r = tonumber(value.R or value.r or value[1])
+		local g = tonumber(value.G or value.g or value[2])
+		local b = tonumber(value.B or value.b or value[3])
+		if r and g and b then
+			if r > 1 or g > 1 or b > 1 or value.Type == "Color3" then
+				r = r / 255
+				g = g / 255
+				b = b / 255
+			end
+			return Color3.new(math.clamp(r, 0, 1), math.clamp(g, 0, 1), math.clamp(b, 0, 1))
+		end
+	end
+	return fallback or Color3.fromRGB(255, 255, 255)
+end
+
+local function colorToHex(color)
+	color = normalizeColorValue(color)
+	return string.format(
+		"#%02X%02X%02X",
+		math.clamp(math.floor(color.R * 255 + 0.5), 0, 255),
+		math.clamp(math.floor(color.G * 255 + 0.5), 0, 255),
+		math.clamp(math.floor(color.B * 255 + 0.5), 0, 255)
+	)
+end
+
+local colorPresets = {
+	{ Name = "White", Color = Color3.fromRGB(255, 255, 255) },
+	{ Name = "Black", Color = Color3.fromRGB(20, 20, 24) },
+	{ Name = "Red", Color = Color3.fromRGB(255, 122, 124) },
+	{ Name = "Green", Color = Color3.fromRGB(102, 209, 160) },
+	{ Name = "Blue", Color = Color3.fromRGB(95, 189, 255) },
+	{ Name = "Purple", Color = Color3.fromRGB(170, 100, 255) },
+	{ Name = "Gold", Color = Color3.fromRGB(255, 187, 92) },
+	{ Name = "Cyan", Color = Color3.fromRGB(91, 233, 255) },
+	{ Name = "Pink", Color = Color3.fromRGB(255, 132, 210) },
+	{ Name = "Orange", Color = Color3.fromRGB(255, 155, 84) },
+	{ Name = "Gray", Color = Color3.fromRGB(150, 154, 170) },
+}
 
 local function base64Decode(data)
 	local alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
@@ -655,6 +700,42 @@ Child.__index = Child
 local Control = {}
 Control.__index = Control
 
+local function normalizeControlOptions(first, second)
+	if typeof(first) == "table" then
+		local options = table.clone(first)
+		if options.Name == nil and options.Title == nil and options.Text ~= nil then
+			options.Name = options.Text
+		end
+		if options.Items == nil and options.Values ~= nil then
+			options.Items = options.Values
+		end
+		if options.Decimals == nil and options.Rounding ~= nil then
+			options.Decimals = options.Rounding
+		end
+		return options
+	end
+
+	local options = typeof(second) == "table" and table.clone(second) or {}
+	if first ~= nil then
+		if options.Flag == nil then
+			options.Flag = first
+		end
+		if options.Name == nil and options.Title == nil then
+			options.Name = options.Text or tostring(first)
+		end
+	end
+	if options.Name == nil and options.Title == nil and options.Text ~= nil then
+		options.Name = options.Text
+	end
+	if options.Items == nil and options.Values ~= nil then
+		options.Items = options.Values
+	end
+	if options.Decimals == nil and options.Rounding ~= nil then
+		options.Decimals = options.Rounding
+	end
+	return options
+end
+
 function Control:Get()
 	return self.Value
 end
@@ -663,6 +744,27 @@ function Control:Set(value, silent)
 	if self.SetValue then
 		self:SetValue(value, silent)
 	end
+end
+
+function Control:OnChanged(callback)
+	if typeof(callback) ~= "function" then
+		self.Callback = nil
+		return self
+	end
+	if self.Type == "ColorPicker" then
+		self.Callback = function(color)
+			callback({ Color = color, Value = color })
+		end
+	else
+		self.Callback = callback
+	end
+	return self
+end
+
+function Control:AddColorPicker(flag, options)
+	options = normalizeControlOptions(flag, options)
+	self.Child:ColorPicker(options)
+	return self
 end
 
 function Control:Destroy()
@@ -727,6 +829,7 @@ function Window:_registerControl(control)
 	table.insert(control.Child.Controls, control)
 	if control.Flag then
 		Library.Flags[control.Flag] = control.Value
+		Library.Options[control.Flag] = control
 	end
 	return control
 end
@@ -1341,6 +1444,7 @@ end
 
 Window.CreateSection = Window.Section
 Window.CreateTab = Window.Section
+Window.AddTab = Window.Section
 Window.Tab = Window.Section
 Window.tab = Window.Section
 
@@ -1481,11 +1585,22 @@ end
 
 Section.CreateChild = Section.Child
 Section.Group = Section.Child
+Section.AddLeftGroupbox = function(self, name)
+	return self:Child(name, "Left")
+end
+Section.AddRightGroupbox = function(self, name)
+	return self:Child(name, "Right")
+end
 
 function Child:_controlBase(kind, options, height)
 	options = options or {}
-	local display = cleanName(options.Name or options.Title or kind)
-	local flag = options.Flag or options.Name or options.Title
+	local display = cleanName(options.Name or options.Title or options.Text or kind)
+	local flag = options.Flag
+	if flag == nil then
+		flag = options.Name or options.Title or options.Text
+	elseif flag == false then
+		flag = nil
+	end
 
 	local row = create("TextButton", {
 		Name = kind .. "_" .. display,
@@ -1526,7 +1641,8 @@ function Child:_controlBase(kind, options, height)
 	return control
 end
 
-function Child:Toggle(options)
+function Child:Toggle(options, legacyOptions)
+	options = normalizeControlOptions(options, legacyOptions)
 	local control = self:_controlBase("Toggle", options, DIM.CheckboxHeight)
 	local value = options.Default == true
 	control.Value = value
@@ -1744,7 +1860,8 @@ end
 Child.Checkbox = Child.Toggle
 Child.AddToggle = Child.Toggle
 
-function Child:Slider(options)
+function Child:Slider(options, legacyOptions)
+	options = normalizeControlOptions(options, legacyOptions)
 	local control = self:_controlBase("Slider", options, DIM.SliderHeight)
 	local min = tonumber(options.Min) or 0
 	local max = tonumber(options.Max) or 100
@@ -1878,7 +1995,8 @@ end
 
 Child.AddSlider = Child.Slider
 
-function Child:Dropdown(options)
+function Child:Dropdown(options, legacyOptions)
+	options = normalizeControlOptions(options, legacyOptions)
 	local control = self:_controlBase("Dropdown", options, DIM.DropdownHeight)
 	local items = options.Items or options.Values or {}
 	local index = tonumber(options.DefaultIndex)
@@ -2000,7 +2118,8 @@ end
 
 Child.AddDropdown = Child.Dropdown
 
-function Child:MultiDropdown(options)
+function Child:MultiDropdown(options, legacyOptions)
+	options = normalizeControlOptions(options, legacyOptions)
 	local control = self:_controlBase("MultiDropdown", options, DIM.DropdownHeight)
 	local items = options.Items or options.Values or {}
 	local state = {}
@@ -2148,7 +2267,182 @@ end
 
 Child.AddMultiDropdown = Child.MultiDropdown
 
-function Child:Button(options)
+function Child:ColorPicker(options, legacyOptions)
+	options = normalizeControlOptions(options, legacyOptions)
+	local control = self:_controlBase("ColorPicker", options, DIM.DropdownHeight)
+	local selected = normalizeColorValue(options.Default or options.Color, self.Window.Theme.Accent)
+	control.Value = selected
+
+	local button = textButton({
+		Name = "ColorButton",
+		Text = "",
+		BackgroundColor3 = THEME.WidgetBackground,
+		BackgroundTransparency = 0,
+		AnchorPoint = Vector2.new(1, 0.5),
+		Position = UDim2.new(1, 0, 0.5, 0),
+		Size = UDim2.fromOffset(DIM.DropdownWidth, DIM.DropdownInnerHeight),
+		ZIndex = 14,
+		Parent = control.Row,
+	})
+	corner(4).Parent = button
+
+	local swatch = create("Frame", {
+		Name = "Swatch",
+		BackgroundColor3 = selected,
+		BorderSizePixel = 0,
+		Position = UDim2.fromOffset(8, 5),
+		Size = UDim2.fromOffset(15, 15),
+		ZIndex = 15,
+		Parent = button,
+	}, {
+		corner(4),
+		stroke(THEME.Rect, 1, 0.15),
+	})
+
+	local preview = textLabel({
+		Name = "Preview",
+		Text = colorToHex(selected),
+		TextColor3 = THEME.Text,
+		TextSize = 11,
+		Position = UDim2.fromOffset(33, 0),
+		Size = UDim2.new(1, -58, 1, 0),
+		ZIndex = 15,
+		Parent = button,
+	})
+
+	imageIcon("G", {
+		Name = "Arrow",
+		ImageColor3 = THEME.Text,
+		AnchorPoint = Vector2.new(1, 0.5),
+		Position = UDim2.new(1, -10, 0.5, 0),
+		Size = UDim2.fromOffset(14, 14),
+		ZIndex = 15,
+		Parent = button,
+	})
+
+	function control:SetValue(newValue, silent)
+		selected = normalizeColorValue(newValue, selected)
+		self.Value = selected
+		swatch.BackgroundColor3 = selected
+		preview.Text = colorToHex(selected)
+		if self.Flag then
+			Library.Flags[self.Flag] = selected
+		end
+		if not silent then
+			safeCallback(self.Callback, selected)
+		end
+	end
+
+	local function open()
+		local presets = options.Presets or colorPresets
+		self.Window:_openPopup(button, DIM.DropdownWidth, function(popup)
+			for _, preset in ipairs(presets) do
+				local color = normalizeColorValue(typeof(preset) == "table" and (preset.Color or preset.Value or preset) or preset, selected)
+				local name = typeof(preset) == "table" and (preset.Name or preset.Text or preset.Label) or nil
+				name = name or colorToHex(color)
+				local active = colorToHex(color) == colorToHex(selected)
+
+				local itemButton = textButton({
+					Text = "",
+					TextColor3 = active and THEME.Text or THEME.TextInactive,
+					TextSize = 12,
+					TextXAlignment = Enum.TextXAlignment.Left,
+					BackgroundColor3 = THEME.WidgetsActive,
+					BackgroundTransparency = active and 0 or 1,
+					Size = UDim2.new(1, 0, 0, 24),
+					ZIndex = 72,
+					Parent = popup,
+				})
+				corner(4).Parent = itemButton
+
+				create("Frame", {
+					Name = "PresetSwatch",
+					BackgroundColor3 = color,
+					BorderSizePixel = 0,
+					Position = UDim2.fromOffset(6, 6),
+					Size = UDim2.fromOffset(12, 12),
+					ZIndex = 73,
+					Parent = itemButton,
+				}, {
+					corner(3),
+					stroke(THEME.Rect, 1, 0.1),
+				})
+
+				local itemLabel = textLabel({
+					Text = tostring(name),
+					TextColor3 = active and THEME.Text or THEME.TextInactive,
+					TextSize = 12,
+					TextXAlignment = Enum.TextXAlignment.Left,
+					Position = UDim2.fromOffset(28, 0),
+					Size = UDim2.new(1, -54, 1, 0),
+					ZIndex = 73,
+					Parent = itemButton,
+				})
+
+				imageIcon("R", {
+					ImageColor3 = THEME.Text,
+					AnchorPoint = Vector2.new(1, 0.5),
+					Position = UDim2.new(1, -6, 0.5, 0),
+					Size = UDim2.fromOffset(14, 14),
+					Visible = active,
+					ZIndex = 73,
+					Parent = itemButton,
+				})
+
+				itemButton.MouseEnter:Connect(function()
+					tween(itemButton, TWEEN_FAST, { BackgroundTransparency = 0 })
+					tween(itemLabel, TWEEN_FAST, { TextColor3 = THEME.Text })
+				end)
+				itemButton.MouseLeave:Connect(function()
+					if colorToHex(color) ~= colorToHex(selected) then
+						tween(itemButton, TWEEN_FAST, { BackgroundTransparency = 1 })
+						tween(itemLabel, TWEEN_FAST, { TextColor3 = THEME.TextInactive })
+					end
+				end)
+				itemButton.MouseButton1Click:Connect(function()
+					control:SetValue(color)
+					self.Window:_closePopup()
+				end)
+			end
+		end, "center")
+	end
+
+	button.MouseButton1Click:Connect(open)
+	control.Row.MouseButton1Click:Connect(open)
+	self.Window:_registerControl(control)
+	return control
+end
+
+Child.Color = Child.ColorPicker
+Child.AddColorPicker = Child.ColorPicker
+
+function Child:Label(options)
+	local text
+	if typeof(options) == "table" then
+		text = options.Text or options.Name or options.Title or ""
+	else
+		text = tostring(options or "")
+	end
+
+	local control = self:_controlBase("Label", {
+		Name = text,
+		Flag = false,
+		NoSave = true,
+	}, 32)
+	control.Label.TextColor3 = THEME.TextInactive
+	control.Label.TextSize = 13
+	control.Label.TextWrapped = true
+	control.Label.TextTruncate = Enum.TextTruncate.None
+	control.Label.Size = UDim2.new(1, 0, 1, 0)
+	control.Value = text
+	self.Window:_registerControl(control)
+	return control
+end
+
+Child.AddLabel = Child.Label
+
+function Child:Button(options, legacyOptions)
+	options = normalizeControlOptions(options, legacyOptions)
 	local control = self:_controlBase("Button", options, DIM.DropdownHeight)
 	control.Label.Visible = false
 
@@ -2230,7 +2524,8 @@ end
 
 Child.AddButton = Child.Button
 
-function Child:Textbox(options)
+function Child:Textbox(options, legacyOptions)
+	options = normalizeControlOptions(options, legacyOptions)
 	local control = self:_controlBase("Textbox", options, 50)
 	control.Label.Visible = false
 	local value = tostring(options.Default or "")
@@ -2310,7 +2605,8 @@ end
 Child.Input = Child.Textbox
 Child.AddTextbox = Child.Textbox
 
-function Child:Keybind(options)
+function Child:Keybind(options, legacyOptions)
+	options = normalizeControlOptions(options, legacyOptions)
 	local control = self:_controlBase("Keybind", options, DIM.DropdownHeight)
 	local current = keyCodeName(options.Default or options.Key or Enum.KeyCode.RightControl)
 	control.Value = current
@@ -3002,6 +3298,41 @@ function Library:GetIcon(icon)
 		icon = self
 	end
 	return resolveIcon(icon)
+end
+
+function Library:SetWatermark(text)
+	if self ~= Library then
+		text = self
+	end
+	Library.Watermark = tostring(text or "")
+	return Library
+end
+
+function Library:Notify(options)
+	if self ~= Library then
+		options = self
+	end
+
+	local title = "Skidded UI"
+	local message = ""
+	local duration = 4
+	if typeof(options) == "table" then
+		title = tostring(options.Title or options.Name or title)
+		message = tostring(options.Description or options.Text or options.Message or "")
+		duration = tonumber(options.Time or options.Duration) or duration
+	else
+		message = tostring(options or "")
+	end
+
+	pcall(function()
+		game:GetService("StarterGui"):SetCore("SendNotification", {
+			Title = title,
+			Text = message,
+			Duration = duration,
+		})
+	end)
+	print("[" .. title .. "] " .. message)
+	return Library
 end
 
 function Library:LoadDemo(options)
