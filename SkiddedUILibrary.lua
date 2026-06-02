@@ -35,6 +35,9 @@ Library.IconAssets = {
 	TAB1 = "rbxassetid://77093162407481",
 }
 Library.LogoAsset = "LOGO"
+Library.LogoSize = Vector2.new(27, 27)
+Library.LogoUseAccent = false
+Library.LogoColor = Color3.fromRGB(255, 255, 255)
 
 for key, value in pairs(table.clone(Library.IconAssets)) do
 	Library.IconAssets["icon_" .. key] = value
@@ -263,6 +266,30 @@ end
 
 local function keyCodeName(value)
 	return toKeyCode(value, Enum.KeyCode.RightControl).Name
+end
+
+local function toVector2Size(value, fallback)
+	fallback = fallback or Vector2.new(27, 27)
+	if typeof(value) == "Vector2" then
+		return value
+	end
+	if typeof(value) == "UDim2" then
+		return Vector2.new(value.X.Offset, value.Y.Offset)
+	end
+	if typeof(value) == "number" then
+		return Vector2.new(value, value)
+	end
+	if typeof(value) == "table" then
+		local x = tonumber(value.X or value.x or value.Width or value.width or value[1])
+		local y = tonumber(value.Y or value.y or value.Height or value.height or value[2])
+		if x and y then
+			return Vector2.new(x, y)
+		end
+		if x then
+			return Vector2.new(x, x)
+		end
+	end
+	return fallback
 end
 
 local function base64Decode(data)
@@ -657,10 +684,15 @@ function Window:_bindAccent(instance, property, options)
 		OffValue = options.OffValue,
 	})
 
+	local offValue = options.OffValue
+	if typeof(offValue) == "function" then
+		offValue = offValue()
+	end
+
 	if not options.Active or options.Active() then
 		instance[property] = self.Theme.Accent
-	elseif options.OffValue ~= nil then
-		instance[property] = options.OffValue
+	elseif offValue ~= nil then
+		instance[property] = offValue
 	end
 end
 
@@ -677,8 +709,14 @@ function Window:_setAccent(color)
 
 			if active then
 				tween(bind.Instance, TWEEN, { [bind.Property] = color })
-			elseif bind.OffValue ~= nil then
-				tween(bind.Instance, TWEEN, { [bind.Property] = bind.OffValue })
+			else
+				local offValue = bind.OffValue
+				if typeof(offValue) == "function" then
+					offValue = offValue()
+				end
+				if offValue ~= nil then
+					tween(bind.Instance, TWEEN, { [bind.Property] = offValue })
+				end
 			end
 		end
 	end
@@ -1035,6 +1073,56 @@ end
 function Window:SetAccent(color)
 	self:_setAccent(color)
 end
+
+function Window:SetLogo(asset, size, options)
+	if typeof(asset) == "table" then
+		options = asset
+		asset = options.Asset or options.Logo or options.LogoAsset or options.Icon or options.Image
+		size = options.Size or options.LogoSize
+	end
+
+	options = typeof(options) == "table" and options or {}
+
+	if asset ~= nil then
+		self.LogoAsset = asset
+	end
+	if size ~= nil then
+		self.LogoSize = toVector2Size(size, self.LogoSize)
+	end
+	if options.UseAccent ~= nil or options.LogoUseAccent ~= nil or options.TintWithAccent ~= nil then
+		self.LogoUseAccent = options.UseAccent == true or options.LogoUseAccent == true or options.TintWithAccent == true
+	end
+	if options.Color or options.LogoColor then
+		self.LogoColor = options.Color or options.LogoColor
+	end
+
+	if self.LogoImage then
+		local logoSize = toVector2Size(self.LogoSize, Library.LogoSize)
+		self.LogoImage.Image = resolveIcon(self.LogoAsset or Library.LogoAsset)
+		self.LogoImage.Size = UDim2.fromOffset(logoSize.X, logoSize.Y)
+		self.LogoImage.ImageColor3 = self.LogoUseAccent and self.Theme.Accent or (self.LogoColor or Library.LogoColor)
+	end
+
+	return self
+end
+
+function Window:SetLogoSize(size, y)
+	if y ~= nil then
+		size = Vector2.new(tonumber(size) or self.LogoSize.X, tonumber(y) or self.LogoSize.Y)
+	end
+	return self:SetLogo(nil, size)
+end
+
+function Window:SetLogoUseAccent(enabled)
+	self.LogoUseAccent = enabled == true
+	if self.LogoImage then
+		self.LogoImage.ImageColor3 = self.LogoUseAccent and self.Theme.Accent or (self.LogoColor or Library.LogoColor)
+	end
+	return self
+end
+
+Window.Logo = Window.SetLogo
+Window.SetLogoAsset = Window.SetLogo
 
 function Window:Destroy()
 	self:_closePopup()
@@ -2721,16 +2809,25 @@ function Window:_makeChrome()
 		corner(DIM.WindowRounding),
 	})
 
-	local logo = imageIcon(Library.LogoAsset or "A", {
+	local logoSize = toVector2Size(self.LogoSize, Library.LogoSize)
+	local logo = imageIcon(self.LogoAsset or Library.LogoAsset or "A", {
 		Name = "Logo",
 		FallbackText = "A",
-		ImageColor3 = self.Theme.Accent,
+		ImageColor3 = self.LogoUseAccent and self.Theme.Accent or (self.LogoColor or Library.LogoColor),
 		Position = UDim2.fromOffset(19, 19),
-		Size = UDim2.fromOffset(27, 27),
+		Size = UDim2.fromOffset(logoSize.X, logoSize.Y),
 		ZIndex = 5,
 		Parent = main,
 	})
-	self:_bindAccent(logo, "ImageColor3")
+	self.LogoImage = logo
+	self:_bindAccent(logo, "ImageColor3", {
+		Active = function()
+			return self.LogoUseAccent == true
+		end,
+		OffValue = function()
+			return self.LogoColor or Library.LogoColor
+		end,
+	})
 
 	create("Frame", {
 		Name = "LogoLine",
@@ -2886,6 +2983,10 @@ function Library:CreateWindow(options)
 		ConfigScope = options.ConfigScope or options.Name or options.Title or "Window",
 		SelectedConfig = normalizeConfigName(options.DefaultConfig or options.Config or "default"),
 		CloseBind = toKeyCode(options.CloseBind or options.ToggleKey or options.CloseKey or Enum.KeyCode.RightControl, Enum.KeyCode.RightControl),
+		LogoAsset = options.Logo or options.LogoAsset or Library.LogoAsset,
+		LogoSize = toVector2Size(options.LogoSize or Library.LogoSize, Library.LogoSize),
+		LogoColor = options.LogoColor or options.LogoTint or Library.LogoColor,
+		LogoUseAccent = options.LogoUseAccent == true or options.TintLogoWithAccent == true,
 	}, Window)
 
 	window:_makeChrome()
@@ -3065,6 +3166,75 @@ function Library:TabId(name, icon)
 	return self.DefaultWindow:TabId(name, icon)
 end
 
+function Library:SetLogo(asset, size, options)
+	if self ~= Library then
+		options = size
+		size = asset
+		asset = self
+		self = Library
+	end
+
+	if typeof(asset) == "table" then
+		options = asset
+		asset = options.Asset or options.Logo or options.LogoAsset or options.Icon or options.Image
+		size = options.Size or options.LogoSize
+	end
+
+	options = typeof(options) == "table" and options or {}
+
+	if asset ~= nil then
+		self.LogoAsset = asset
+	end
+	if size ~= nil then
+		self.LogoSize = toVector2Size(size, self.LogoSize)
+	end
+	if options.UseAccent ~= nil or options.LogoUseAccent ~= nil or options.TintWithAccent ~= nil then
+		self.LogoUseAccent = options.UseAccent == true or options.LogoUseAccent == true or options.TintWithAccent == true
+	end
+	if options.Color or options.LogoColor then
+		self.LogoColor = options.Color or options.LogoColor
+	end
+
+	for _, window in ipairs(self.Windows) do
+		if window.ScreenGui and window.ScreenGui.Parent then
+			window:SetLogo({
+				Asset = self.LogoAsset,
+				Size = self.LogoSize,
+				UseAccent = self.LogoUseAccent,
+				Color = self.LogoColor,
+			})
+		end
+	end
+
+	return self
+end
+
+function Library:SetLogoSize(size, y)
+	if self ~= Library then
+		y = size
+		size = self
+		self = Library
+	end
+	if y ~= nil then
+		size = Vector2.new(tonumber(size) or self.LogoSize.X, tonumber(y) or self.LogoSize.Y)
+	end
+	return self:SetLogo(nil, size)
+end
+
+function Library:SetLogoUseAccent(enabled)
+	if self ~= Library then
+		enabled = self
+		self = Library
+	end
+	self.LogoUseAccent = enabled == true
+	for _, window in ipairs(self.Windows) do
+		if window.ScreenGui and window.ScreenGui.Parent then
+			window:SetLogoUseAccent(self.LogoUseAccent)
+		end
+	end
+	return self
+end
+
 Library.Create = Library.CreateWindow
 Library.NewWindow = Library.CreateWindow
 Library.CreateSection = Library.Section
@@ -3072,6 +3242,8 @@ Library.Tab = Library.Section
 Library.tab = Library.Section
 Library.tab_id = Library.TabId
 Library.SetTabIcon = Library.TabId
+Library.Logo = Library.SetLogo
+Library.SetLogoAsset = Library.SetLogo
 
 Library.WindowClass = Window
 Library.SectionClass = Section
