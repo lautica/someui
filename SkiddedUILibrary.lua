@@ -128,6 +128,8 @@ local DIM = {
 	SearchOpen = 340,
 }
 
+Library.TabIconSize = Library.TabIconSize or DIM.TabIconSize
+
 local TWEEN_FAST = TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 local TWEEN = TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 local TWEEN_SLOW = TweenInfo.new(0.28, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
@@ -1319,7 +1321,7 @@ function Window:Section(name, icon)
 		iconValue = self.TabIconIds[normalizeTabName(name)]
 	end
 
-	local iconSize = self.PendingTabIconSize or passedIconSize or DIM.TabIconSize
+	local iconSize = tonumber(self.PendingTabIconSize or passedIconSize or self.TabIconSize or Library.TabIconSize or DIM.TabIconSize) or DIM.TabIconSize
 	self.PendingTabIconSize = nil
 
 	self.UserSectionCount = (self.UserSectionCount or 0) + 1
@@ -1413,14 +1415,41 @@ function Window:Section(name, icon)
 	})
 	section.Page = page
 
+	local scroll = create("ScrollingFrame", {
+		Name = "PageScroll",
+		Active = true,
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		CanvasSize = UDim2.fromOffset(0, 0),
+		AutomaticCanvasSize = Enum.AutomaticSize.Y,
+		ScrollBarThickness = 3,
+		ScrollBarImageColor3 = THEME.Rect,
+		ScrollingDirection = Enum.ScrollingDirection.Y,
+		Size = UDim2.fromScale(1, 1),
+		ZIndex = 10,
+		Parent = page,
+	})
+	section.Scroll = scroll
+
+	local content = create("Frame", {
+		Name = "PageContent",
+		BackgroundTransparency = 1,
+		Size = UDim2.fromOffset(DIM.ContentWidth, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		ZIndex = 10,
+		Parent = scroll,
+	}, {
+		listLayout(Enum.FillDirection.Horizontal, DIM.ColumnGap),
+	})
+	section.Content = content
+
 	local leftColumn = create("Frame", {
 		Name = "LeftColumn",
 		BackgroundTransparency = 1,
-		Position = UDim2.fromOffset(0, 0),
 		Size = UDim2.fromOffset(DIM.ColumnWidth, 0),
 		AutomaticSize = Enum.AutomaticSize.Y,
 		ZIndex = 10,
-		Parent = page,
+		Parent = content,
 	}, {
 		listLayout(Enum.FillDirection.Vertical, DIM.ColumnGap),
 	})
@@ -1428,11 +1457,10 @@ function Window:Section(name, icon)
 	local rightColumn = create("Frame", {
 		Name = "RightColumn",
 		BackgroundTransparency = 1,
-		Position = UDim2.fromOffset(DIM.ColumnWidth + DIM.ColumnGap, 0),
 		Size = UDim2.fromOffset(DIM.ColumnWidth, 0),
 		AutomaticSize = Enum.AutomaticSize.Y,
 		ZIndex = 10,
-		Parent = page,
+		Parent = content,
 	}, {
 		listLayout(Enum.FillDirection.Vertical, DIM.ColumnGap),
 	})
@@ -1483,6 +1511,22 @@ function Section:SetIcon(icon)
 	end
 end
 
+function Section:SetIconSize(size)
+	if self.IsSettings then
+		return self
+	end
+
+	local iconSize = tonumber(size) or self.IconSize or self.Window.TabIconSize or Library.TabIconSize or DIM.TabIconSize
+	self.IconSize = iconSize
+	if self.IconImage then
+		self.IconImage.Size = UDim2.fromOffset(iconSize, iconSize)
+	end
+	if self.FallbackIcon then
+		self.FallbackIcon.TextSize = math.clamp(iconSize, 12, 22)
+	end
+	return self
+end
+
 function Window:SetSectionIcon(section, icon)
 	if typeof(section) == "number" then
 		local wanted = section
@@ -1527,6 +1571,69 @@ Window.tab_id = Window.TabId
 Window.TabID = Window.TabId
 Window.SetTabIcon = Window.TabId
 Window.SetTabId = Window.TabId
+
+function Window:SetTabIconSize(section, size)
+	if size == nil and (typeof(section) == "number" or typeof(section) == "string") then
+		local maybeSection = nil
+		if typeof(section) == "string" then
+			local wanted = normalizeTabName(section)
+			for _, entry in ipairs(self.Sections) do
+				if not entry.IsSettings and normalizeTabName(entry.Name) == wanted then
+					maybeSection = entry
+					break
+				end
+			end
+		end
+		if not maybeSection then
+			size = section
+			section = nil
+		end
+	end
+
+	local iconSize = tonumber(size or section) or self.TabIconSize or Library.TabIconSize or DIM.TabIconSize
+	if section == nil then
+		self.TabIconSize = iconSize
+		for _, entry in ipairs(self.Sections) do
+			if not entry.IsSettings then
+				entry:SetIconSize(iconSize)
+			end
+		end
+		return self
+	end
+
+	local target = section
+	if typeof(target) == "number" then
+		local wanted = target
+		local count = 0
+		target = nil
+		for _, entry in ipairs(self.Sections) do
+			if not entry.IsSettings then
+				count += 1
+				if count == wanted then
+					target = entry
+					break
+				end
+			end
+		end
+	elseif typeof(target) == "string" then
+		local wanted = normalizeTabName(target)
+		target = nil
+		for _, entry in ipairs(self.Sections) do
+			if not entry.IsSettings and normalizeTabName(entry.Name) == wanted then
+				target = entry
+				break
+			end
+		end
+	end
+
+	if target and target.SetIconSize then
+		target:SetIconSize(iconSize)
+	end
+	return self
+end
+
+Window.SetSectionIconSize = Window.SetTabIconSize
+Window.SetDefaultTabIconSize = Window.SetTabIconSize
 
 function Section:Child(name, side)
 	local chosenSide = side
@@ -2878,11 +2985,12 @@ function Window:_makeConfigDropdown()
 end
 
 function Window:_makeSettings()
+	local settingsIconSize = tonumber(self.SettingsIconSize or self.TabIconSize or Library.TabIconSize or DIM.TabIconSize) or DIM.TabIconSize
 	local section = setmetatable({
 		Window = self,
 		Name = "Settings",
 		Icon = "F",
-		IconSize = DIM.TabIconSize,
+		IconSize = settingsIconSize,
 		IsSettings = true,
 		Children = {},
 		ColumnCounts = { Left = 0, Right = 0 },
@@ -2907,7 +3015,7 @@ function Window:_makeSettings()
 		FallbackTextSize = 16,
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Position = UDim2.fromScale(0.5, 0.5),
-		Size = UDim2.fromOffset(DIM.TabIconSize, DIM.TabIconSize),
+		Size = UDim2.fromOffset(settingsIconSize, settingsIconSize),
 		ZIndex = button.ZIndex + 1,
 		Parent = button,
 	})
@@ -2937,14 +3045,41 @@ function Window:_makeSettings()
 	})
 	section.Page = page
 
+	local scroll = create("ScrollingFrame", {
+		Name = "PageScroll",
+		Active = true,
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		CanvasSize = UDim2.fromOffset(0, 0),
+		AutomaticCanvasSize = Enum.AutomaticSize.Y,
+		ScrollBarThickness = 3,
+		ScrollBarImageColor3 = THEME.Rect,
+		ScrollingDirection = Enum.ScrollingDirection.Y,
+		Size = UDim2.fromScale(1, 1),
+		ZIndex = 10,
+		Parent = page,
+	})
+	section.Scroll = scroll
+
+	local content = create("Frame", {
+		Name = "PageContent",
+		BackgroundTransparency = 1,
+		Size = UDim2.fromOffset(DIM.ContentWidth, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		ZIndex = 10,
+		Parent = scroll,
+	}, {
+		listLayout(Enum.FillDirection.Horizontal, DIM.ColumnGap),
+	})
+	section.Content = content
+
 	section.LeftColumn = create("Frame", {
 		Name = "LeftColumn",
 		BackgroundTransparency = 1,
-		Position = UDim2.fromOffset(0, 0),
 		Size = UDim2.fromOffset(DIM.ColumnWidth, 0),
 		AutomaticSize = Enum.AutomaticSize.Y,
 		ZIndex = 10,
-		Parent = page,
+		Parent = content,
 	}, {
 		listLayout(Enum.FillDirection.Vertical, DIM.ColumnGap),
 	})
@@ -2952,11 +3087,10 @@ function Window:_makeSettings()
 	section.RightColumn = create("Frame", {
 		Name = "RightColumn",
 		BackgroundTransparency = 1,
-		Position = UDim2.fromOffset(DIM.ColumnWidth + DIM.ColumnGap, 0),
 		Size = UDim2.fromOffset(DIM.ColumnWidth, 0),
 		AutomaticSize = Enum.AutomaticSize.Y,
 		ZIndex = 10,
-		Parent = page,
+		Parent = content,
 	}, {
 		listLayout(Enum.FillDirection.Vertical, DIM.ColumnGap),
 	})
@@ -3277,6 +3411,8 @@ function Library:CreateWindow(options)
 		UserSectionCount = 0,
 		HasUserSections = false,
 		DPI = options.DPI or 100,
+		TabIconSize = tonumber(options.TabIconSize or options.DefaultTabIconSize or Library.TabIconSize or DIM.TabIconSize) or DIM.TabIconSize,
+		SettingsIconSize = tonumber(options.SettingsIconSize or options.TabIconSize or Library.TabIconSize or DIM.TabIconSize) or DIM.TabIconSize,
 		Language = "English",
 		Visible = true,
 		SearchText = "",
@@ -3572,6 +3708,21 @@ function Library:SetLogoUseAccent(enabled)
 	return self
 end
 
+function Library:SetTabIconSize(size)
+	if self ~= Library then
+		size = self
+		self = Library
+	end
+	local iconSize = tonumber(size) or self.TabIconSize or DIM.TabIconSize
+	self.TabIconSize = iconSize
+	for _, window in ipairs(self.Windows) do
+		if window.ScreenGui and window.ScreenGui.Parent then
+			window:SetTabIconSize(iconSize)
+		end
+	end
+	return self
+end
+
 Library.Create = Library.CreateWindow
 Library.NewWindow = Library.CreateWindow
 Library.CreateSection = Library.Section
@@ -3579,6 +3730,7 @@ Library.Tab = Library.Section
 Library.tab = Library.Section
 Library.tab_id = Library.TabId
 Library.SetTabIcon = Library.TabId
+Library.SetDefaultTabIconSize = Library.SetTabIconSize
 Library.Logo = Library.SetLogo
 Library.SetLogoAsset = Library.SetLogo
 
