@@ -293,6 +293,11 @@ local function toVector2Size(value, fallback)
 	return fallback
 end
 
+local function logoPositionForSize(size)
+	local logoSize = toVector2Size(size, Library.LogoSize)
+	return UDim2.fromOffset((DIM.RailWidth - logoSize.X) / 2, (DIM.RailWidth - logoSize.Y) / 2)
+end
+
 local function normalizeColorValue(value, fallback)
 	if typeof(value) == "Color3" then
 		return value
@@ -1202,6 +1207,7 @@ function Window:SetLogo(asset, size, options)
 	if self.LogoImage then
 		local logoSize = toVector2Size(self.LogoSize, Library.LogoSize)
 		self.LogoImage.Image = resolveIcon(self.LogoAsset or Library.LogoAsset)
+		self.LogoImage.Position = logoPositionForSize(logoSize)
 		self.LogoImage.Size = UDim2.fromOffset(logoSize.X, logoSize.Y)
 		self.LogoImage.ImageColor3 = self.LogoUseAccent and self.Theme.Accent or (self.LogoColor or Library.LogoColor)
 	end
@@ -3110,7 +3116,7 @@ function Window:_makeChrome()
 		Name = "Logo",
 		FallbackText = "A",
 		ImageColor3 = self.LogoUseAccent and self.Theme.Accent or (self.LogoColor or Library.LogoColor),
-		Position = UDim2.fromOffset(19, 19),
+		Position = logoPositionForSize(logoSize),
 		Size = UDim2.fromOffset(logoSize.X, logoSize.Y),
 		ZIndex = 5,
 		Parent = main,
